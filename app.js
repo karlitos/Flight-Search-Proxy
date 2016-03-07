@@ -6,18 +6,109 @@ var express = require('express')
 ,   logger = require('morgan')
 ,   conf = require('./config.json')
 ,   validate = require('express-validation')
-,   flightApiValidation = require('./validation/flights');
+,   flightApiValidation = require('./validation/flights')
+,   flightsModel = require('./models.js')
+,   request = require('request');
 
- app.use(logger('dev'));
+app.use(logger('dev'));
+
+function queryGoogleQpxApi(params, callback){
+
+  // JSON to be passed to the QPX Express API
+  var requestData = {
+    'request': {
+      'passengers': {
+        'adultCount': params['adult_passengers']
+      },
+      'slice': [
+        {
+          'origin': params['origin'],
+          'destination': params['destination'],
+          'date': new Date(params['start_date']).toLocaleDateString('us-US', {
+            day : 'numeric',
+            month : 'numeric',
+            year : 'numeric'
+          }),
+          'maxStops': params['max_stops']
+        }
+      ],
+      'maxPrice': params['max_price_currency'] + params['max_price'],
+      'solutions': 1
+    }
+  };
+  //console.log(JSON.stringify(requestData) );
+
+  // QPX REST API URL
+  var googleApiUrl = 'https://www.googleapis.com/qpxExpress/v1/trips/search?key=' + conf.googleDevApiKey;
+  // fire request
+
+  request({
+    url: googleApiUrl,
+    method: "POST",
+    json: true,
+    body: requestData
+  },function(error, response, body) {
+    if (!error && response.statusCode === 200) {
+      //console.log(body)
+      callback(null, body);
+    }
+    else {
+      //console.log("error: " + error)
+      //console.log("response.statusCode: " + response.statusCode)
+      //console.log("response.statusText: " + response.statusText)
+      callback(error, body);
+    }
+  })
+}
+
+// TEST QUERY
+// ==============================================
+// /flights?start_date=2016-07-14%2018:36:55&return_date=2016-07-24%2018:36:21&adult_passengers=1&origin=SFO&destination=LAX&max_stops=2&max_price=250&max_price_currency=USD
+
+// flight API calllback
+function flightApiResponse(req, res, next) {
+
+  // first query the google QPX Express API with the req.query params
+  queryGoogleQpxApi(req.query, function(err, data){
+    // querying the google API  went wrong
+    if(err) {
+       //console.log(data);
+       return next(err);
+     }
+     // save the data to the model
+     else{
+       var flightData = flightsModel.create();
+       // set the model attributes
+       flightData.departureTime(new Date(data.trips.tripOption[0].slice[0].segment[0].leg[0].departureTime).toLocaleDateString('us-US',{
+         hour: 'numeric',
+         minute: 'numeric',
+         second: 'numeric'}));
+       flightData.arrivalTime(new Date(data.trips.tripOption[0].slice[0].segment[0].leg[0].arrivalTime).toLocaleDateString('us-US',{
+         hour: 'numeric',
+         minute: 'numeric',
+         second: 'numeric'}));
+       flightData.origin(data.trips.data.city[1].name);
+       flightData.destination(data.trips.data.city[0].name);
+       flightData.flightDuration(data.trips.tripOption[0].slice[0].segment[0].duration);
+       flightData.aircraftType(data.trips.data.aircraft[0].name);
+       flightData.price(data.trips.tripOption[0].saleTotal);
+
+       //Invoke validations and wait for the validations to fulfill
+       flightData.validate().then(function() {
+         if (flightData.isValid) {
+           //validated, perform business logic
+           res.send(flightData.toJSON());
+         } else {
+           //validation failed, pass validation errors
+           return next(flightData.errors);
+         }
+       });
+     }
+  });
+}
 // ROUTES
 // ==============================================
 // routes will go here
-
-// flight API calllback
-function flightApiResponse(req, res) {
-  console.log('Route reached!', req.query);
-  res.send('this is a sample!');
-}
 
 // flights route
 app.get('/flights', validate(flightApiValidation), flightApiResponse);
@@ -40,19 +131,19 @@ if (app.get('env') === 'development') {
         message: err.message,
         error: err
       });
-  });
-}
-
-// production error handler
-// no stacktraces leaked to user
-app.use(function(err, req, res, next) {
-  res.status(err.status || 500).send(
-    {
-      message: err.message,
-      error: {}
     });
-});
+  }
 
-// EXPORT FOR THE SERVER
-// ==============================================
-module.exports = app;
+  // production error handler
+  // no stacktraces leaked to user
+  app.use(function(err, req, res, next) {
+    res.status(err.status || 500).send(
+      {
+        message: err.message,
+        error: {}
+      });
+    });
+
+    // EXPORT FOR THE SERVER
+    // ==============================================
+    module.exports = app;
