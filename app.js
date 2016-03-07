@@ -12,7 +12,7 @@ var express = require('express')
 
 app.use(logger('dev'));
 
-function queryGoogleQpxApi(params, callback
+function queryGoogleQpxApi(params, callback){
 
   // To get return flights a second (optional) request has to be made to the
   // Google QPX API with origin and destination interchanged and the start date

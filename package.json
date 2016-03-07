@@ -4,7 +4,8 @@
   "main": "apps-js",
   "private": true,
   "scripts": {
-    "start": "node ./bin/server"
+    "start": "node ./bin/server",
+    "debug": "DEBUG=* node ./bin/server"
   },
   "dependencies": {
     "debug": "~2.2.0",
