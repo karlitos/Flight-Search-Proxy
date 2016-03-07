@@ -12,7 +12,11 @@ var express = require('express')
 
 app.use(logger('dev'));
 
-function queryGoogleQpxApi(params, callback){
+function queryGoogleQpxApi(params, callback
+
+  // To get return flights a second (optional) request has to be made to the
+  // Google QPX API with origin and destination interchanged and the start date
+  // set to the return date.
 
   // JSON to be passed to the QPX Express API
   var requestData = {
@@ -36,7 +40,6 @@ function queryGoogleQpxApi(params, callback){
       'solutions': 1
     }
   };
-  //console.log(JSON.stringify(requestData) );
 
   // QPX REST API URL
   var googleApiUrl = 'https://www.googleapis.com/qpxExpress/v1/trips/search?key=' + conf.googleDevApiKey;
@@ -48,15 +51,17 @@ function queryGoogleQpxApi(params, callback){
     json: true,
     body: requestData
   },function(error, response, body) {
-    if (!error && response.statusCode === 200) {
-      //console.log(body)
+    if (!error && response.statusCode === 200 && !body.error) {
+      console.log('BODY', body)
       callback(null, body);
     }
     else {
-      //console.log("error: " + error)
-      //console.log("response.statusCode: " + response.statusCode)
-      //console.log("response.statusText: " + response.statusText)
-      callback(error, body);
+      if (body.error){
+        callback(body.error, body);
+      }
+      else{
+        callback(error, body);
+      }
     }
   })
 }
@@ -75,8 +80,12 @@ function flightApiResponse(req, res, next) {
        //console.log(data);
        return next(err);
      }
-     // save the data to the model
      else{
+       // check if results contain any flights
+       if (!(data.trips.data && data.trips.tripOption)){
+         return res.send({'empty': 'No flights found!'});
+       }
+       // save the data to the model
        var flightData = flightsModel.create();
        // set the model attributes
        flightData.departureTime(new Date(data.trips.tripOption[0].slice[0].segment[0].leg[0].departureTime).toLocaleDateString('us-US',{
